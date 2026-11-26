@@ -1,0 +1,690 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isVerifiedEmail(email) {
+      return isSignedIn() &&
+             request.auth.token.get('email_verified', false) == true &&
+             email is string &&
+             email.size() > 0 &&
+             request.auth.token.get('email', '').lower() == email;
+    }
+
+    function isVerifiedPhone(phone) {
+      let tokenPhone = request.auth.token.get('phone_number', '');
+      return isSignedIn() && (
+        (tokenPhone is string && tokenPhone.size() > 0 && phone is string && phone.size() > 0 && tokenPhone == phone) ||
+        (tokenPhone is string && tokenPhone.size() > 0 && phone is string && phone.size() > 0 && tokenPhone.replace('+', '') == phone.replace('+', ''))
+      );
+    }
+
+    function isUserVerifiedInList(emails) {
+      let tokenEmail = request.auth.token.get('email', '');
+      return isSignedIn() &&
+             tokenEmail is string &&
+             tokenEmail.size() > 0 &&
+             emails is list &&
+             tokenEmail.lower() in emails;
+    }
+
+    function isPhoneVerifiedInList(phones) {
+      let tokenPhone = request.auth.token.get('phone_number', '');
+      return isSignedIn() &&
+             tokenPhone is string &&
+             tokenPhone.size() > 0 &&
+             phones is list &&
+             tokenPhone in phones;
+    }
+
+    function isAgreementMember(data) {
+      let tokenPhone = request.auth.token.get('phone_number', '');
+      return isSignedIn() && (
+        data.ownerId == request.auth.uid ||
+        (data.participantUids is list && request.auth.uid in data.participantUids) ||
+        isUserVerifiedInList(data.participantEmails) ||
+        isPhoneVerifiedInList(data.get('participantPhones', [])) ||
+        (tokenPhone != '' && 'participantPhones' in data && tokenPhone in data.participantPhones)
+      );
+    }
+
+    function isSubcollectionMember(data) {
+      let tokenPhone = request.auth.token.get('phone_number', '');
+      return isSignedIn() && (
+        (data.participantUids is list && request.auth.uid in data.participantUids) ||
+        isUserVerifiedInList(data.participantEmails) ||
+        isPhoneVerifiedInList(data.get('participantPhones', [])) ||
+        (tokenPhone != '' && 'participantPhones' in data && tokenPhone in data.participantPhones)
+      );
+    }
+
+    function allPartiesApproved(parties) {
+      return parties.size() >= 1 && parties[0].approved == true &&
+             (parties.size() < 2 || parties[1].approved == true) &&
+             (parties.size() < 3 || parties[2].approved == true) &&
+             (parties.size() < 4 || parties[3].approved == true) &&
+             (parties.size() < 5 || parties[4].approved == true) &&
+             (parties.size() < 6 || parties[5].approved == true);
+    }
+
+    function allWitnessesApproved(witnesses) {
+      return (witnesses.size() < 1 || ('approvedAtMillis' in witnesses[0] && witnesses[0].approvedAtMillis is number)) &&
+             (witnesses.size() < 2 || ('approvedAtMillis' in witnesses[1] && witnesses[1].approvedAtMillis is number)) &&
+             (witnesses.size() < 3 || ('approvedAtMillis' in witnesses[2] && witnesses[2].approvedAtMillis is number)) &&
+             (witnesses.size() < 4 || ('approvedAtMillis' in witnesses[3] && witnesses[3].approvedAtMillis is number));
+    }
+
+    // --- VALIDATION HELPERS ---
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500)) &&
+             data.phoneVerified is bool &&
+             (!('biometricCredentialId' in data) || (data.biometricCredentialId is string && data.biometricCredentialId.size() <= 128)) &&
+             (!('preferredTheme' in data) || data.preferredTheme in ['SYSTEM', 'LIGHT', 'DARK']) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidVaultDoc(data, uid) {
+      return data.userId == uid &&
+             data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
+             data.category is string && data.category.size() >= 2 && data.category.size() <= 60 &&
+             data.referenceCode is string && data.referenceCode.size() >= 2 && data.referenceCode.size() <= 64 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+             data.sha256Hash is string && data.sha256Hash.size() == 64 && data.sha256Hash.matches('^[a-f0-9]{64}$') &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidSession(data, uid) {
+      return data.userId == uid &&
+             data.device is string && data.device.size() >= 1 && data.device.size() <= 120 &&
+             data.userAgent is string && data.userAgent.size() >= 1 && data.userAgent.size() <= 250 &&
+             data.ipHash is string && data.ipHash.size() >= 8 && data.ipHash.size() <= 64 &&
+             data.revoked is bool &&
+             data.lastSeenAt is timestamp && data.lastSeenAt <= request.time &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidAgreement(data) {
+      return data.ownerId is string && data.ownerName is string && data.ownerEmail is string &&
+             data.agreementCode is string &&
+             data.title is string && data.title.size() >= 3 && data.title.size() <= 160 &&
+             data.type in ['FINANCIAL', 'PARTNERSHIP', 'SERVICE', 'LEASE', 'LOAN', 'NDA', 'SALE', 'EMPLOYMENT', 'AGENCY', 'OTHER'] &&
+             data.description is string && data.description.size() >= 10 && data.description.size() <= 5000 &&
+             data.status in ['DRAFT', 'PENDING', 'APPROVED', 'NEEDS_EDIT', 'EXPIRED', 'DISPUTED'] &&
+             data.currency in ['SAR', 'YER', 'AED', 'KWD', 'EGP', 'USD', 'EUR', 'NONE'] &&
+             data.amount is number && data.amount >= 0 && data.amount <= 1000000000 &&
+             data.paymentMethod in ['BANK_TRANSFER', 'CASH', 'ELECTRONIC', 'INSTALLMENTS', 'NONE'] &&
+             data.parties is list && data.parties.size() >= 1 && data.parties.size() <= 6 &&
+             data.witnesses is list && data.witnesses.size() <= 4 &&
+             data.participantUids is list && data.participantUids.size() >= 1 &&
+             data.participantEmails is list &&
+             data.currentVersionId is string &&
+             data.versions is list && data.versions.size() >= 1 &&
+             data.contentHash is string && data.contentHash.size() == 64 &&
+             data.createdAt is timestamp && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAgreementMutableFields(data) {
+      return data.title is string && data.title.size() >= 3 && data.title.size() <= 160 &&
+             data.description is string && data.description.size() >= 10 && data.description.size() <= 5000 &&
+             data.status in ['DRAFT', 'PENDING', 'APPROVED', 'NEEDS_EDIT', 'EXPIRED', 'DISPUTED'] &&
+             data.amount is number && data.amount >= 0 && data.amount <= 1000000000 &&
+             data.parties is list && data.parties.size() >= 1 && data.parties.size() <= 6 &&
+             data.witnesses is list && data.witnesses.size() <= 4 &&
+             data.participantUids is list && data.participantUids.size() >= 1 &&
+             data.versions is list && data.versions.size() >= 1 &&
+             data.contentHash is string && data.contentHash.size() == 64 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isAfterAmendmentValid(agreementId, amendId, partyCount) {
+      let afterAmend = getAfter(/databases/$(database)/documents/agreements/$(agreementId)/amendments/$(amendId)).data;
+      return get(/databases/$(database)/documents/agreements/$(agreementId)/amendments/$(amendId)).data.status == 'PENDING' &&
+             afterAmend.status == 'APPROVED_APPLIED' &&
+             afterAmend.approvedPartyKeys.size() >= partyCount;
+    }
+
+    function isAmendmentApplyAllowed(inData, exData, agreementId) {
+      return ('lastAppliedAmendmentId' in inData) &&
+             inData.lastAppliedAmendmentId is string &&
+             inData.lastAppliedAmendmentId.size() >= 1 &&
+             inData.versions.size() == exData.versions.size() + 1 &&
+             inData.currentVersionId != exData.currentVersionId &&
+             ('approvedSnapshot' in inData) && inData.approvedSnapshot is map &&
+             ('approvedHash' in inData) && inData.approvedHash is string && inData.approvedHash.size() == 64 &&
+             ('lockedAt' in inData) && inData.lockedAt is timestamp &&
+             isAfterAmendmentValid(agreementId, inData.lastAppliedAmendmentId, exData.parties.size()) &&
+             inData.diff(exData).affectedKeys().hasOnly([
+               'title', 'description', 'amount', 'dueDate',
+               'rights', 'obligations', 'specialTerms',
+               'currentVersionId', 'versions', 'contentHash',
+               'approvedSnapshot', 'approvedHash', 'lastAppliedAmendmentId',
+               'lockedAt', 'updatedAt'
+             ]);
+    }
+
+    function isAgreementUpdateAllowed(inData, exData, agreementId) {
+      return isAgreementMember(exData) &&
+             inData.ownerId == exData.ownerId &&
+             inData.ownerEmail == exData.ownerEmail &&
+             inData.agreementCode == exData.agreementCode &&
+             inData.createdAt == exData.createdAt &&
+             isValidAgreementMutableFields(inData) &&
+             (
+               // 1. Draft / Needs-Edit owner updates before approval
+               (
+                 exData.status in ['DRAFT', 'NEEDS_EDIT'] &&
+                 inData.status in ['DRAFT', 'PENDING'] &&
+                 request.auth.uid == exData.ownerId &&
+                 !('lockedAt' in exData) &&
+                 !('approvedSnapshot' in exData) &&
+                 !('lockedAt' in exData) &&
+                 !inData.diff(exData).affectedKeys().hasAny([
+                   'ownerId', 'ownerName', 'ownerEmail', 'ownerPhone', 'agreementCode',
+                   'paidTotal', 'approvedSnapshot', 'approvedHash', 'lastAppliedAmendmentId', 'lockedAt', 'createdAt'
+                 ])
+               ) ||
+               // 2. Request edits while PENDING
+               (
+                 exData.status == 'PENDING' &&
+                 inData.status == 'NEEDS_EDIT' &&
+                 inData.diff(exData).affectedKeys().hasOnly(['status', 'editRequestNote', 'updatedAt'])
+               ) ||
+               // 3. Individual Party/Witness dual-factor signing while staying PENDING
+               (
+                 exData.status == 'PENDING' &&
+                 inData.status == 'PENDING' &&
+                 !('approvedSnapshot' in inData) &&
+                 !('lockedAt' in inData) &&
+                 (request.auth.uid in inData.participantUids) &&
+                 inData.diff(exData).affectedKeys().hasOnly(['parties', 'witnesses', 'participantUids', 'versions', 'updatedAt'])
+               ) ||
+               // 4. Final transactional approval & lock (REQUIRES all parties and witnesses signed)
+               (
+                 exData.status == 'PENDING' &&
+                 inData.status == 'APPROVED' &&
+                 allPartiesApproved(inData.parties) &&
+                 allWitnessesApproved(inData.witnesses) &&
+                 ('approvedSnapshot' in inData) && inData.approvedSnapshot is map &&
+                 ('approvedHash' in inData) && inData.approvedHash is string && inData.approvedHash.size() == 64 &&
+                 ('lockedAt' in inData) && inData.lockedAt is timestamp &&
+                 (request.auth.uid in inData.participantUids) &&
+                 inData.diff(exData).affectedKeys().hasOnly([
+                   'status', 'parties', 'witnesses', 'participantUids',
+                   'versions', 'approvedSnapshot', 'approvedHash', 'lockedAt', 'updatedAt'
+                 ])
+               ) ||
+               // 5. Unanimous approved amendment transaction (creates vN+1 with new approvedHash)
+               (
+                 exData.status == 'APPROVED' &&
+                 inData.status == 'APPROVED' &&
+                 isAmendmentApplyAllowed(inData, exData, agreementId)
+               ) ||
+               // 6. Authoritative confirmed-payment total increment
+               (
+                 exData.status in ['PENDING', 'APPROVED', 'DISPUTED'] &&
+                 inData.status == exData.status &&
+                 ('paidTotal' in inData) && inData.paidTotal is number &&
+                 (!('paidTotal' in exData) || inData.paidTotal >= exData.paidTotal) &&
+                 inData.diff(exData).affectedKeys().hasOnly(['paidTotal', 'updatedAt'])
+               ) ||
+               // 7. Dispute or Expiration transition
+               (
+                 exData.status in ['PENDING', 'APPROVED'] &&
+                 inData.status in ['DISPUTED', 'EXPIRED'] &&
+                 inData.diff(exData).affectedKeys().hasOnly(['status', 'updatedAt'])
+               )
+             );
+    }
+
+    function isValidAmendment(data, agreementId) {
+      return data.agreementId == agreementId &&
+             data.baseVersionId is string && data.baseVersionId.size() >= 1 && data.baseVersionId.size() <= 64 &&
+             data.proposedByUid is string && data.proposedByUid.size() >= 1 && data.proposedByUid.size() <= 128 &&
+             data.proposedByName is string && data.proposedByName.size() >= 1 && data.proposedByName.size() <= 120 &&
+             data.reason is string && data.reason.size() >= 3 && data.reason.size() <= 500 &&
+             data.proposedTitle is string && data.proposedTitle.size() >= 3 && data.proposedTitle.size() <= 160 &&
+             data.proposedDescription is string && data.proposedDescription.size() >= 10 && data.proposedDescription.size() <= 5000 &&
+             data.proposedAmount is number && data.proposedAmount >= 0 && data.proposedAmount <= 1000000000 &&
+             data.proposedDueDate is string && data.proposedDueDate.size() <= 40 &&
+             data.proposedRights is list && data.proposedRights.size() <= 20 &&
+             data.proposedObligations is list && data.proposedObligations.size() <= 20 &&
+             data.proposedSpecialTerms is list && data.proposedSpecialTerms.size() <= 20 &&
+             data.diffItems is list && data.diffItems.size() >= 1 && data.diffItems.size() <= 10 &&
+             data.requiredPartyKeys is list && data.requiredPartyKeys.size() >= 1 && data.requiredPartyKeys.size() <= 6 &&
+             data.approvedByUids is list && data.approvedByUids.size() <= 6 &&
+             data.approvedPartyKeys is list && data.approvedPartyKeys.size() <= 6 &&
+             (!('rejectedByUid' in data) || (data.rejectedByUid is string && data.rejectedByUid.size() <= 128)) &&
+             (!('rejectionNote' in data) || (data.rejectionNote is string && data.rejectionNote.size() <= 500)) &&
+             data.status in ['PENDING', 'APPROVED_APPLIED', 'REJECTED'] &&
+             (!('appliedVersionId' in data) || (data.appliedVersionId is string && data.appliedVersionId.size() <= 64)) &&
+             data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 10 &&
+             data.participantEmails is list && data.participantEmails.size() <= 10 &&
+             (!('participantPhones' in data) || (data.participantPhones is list && data.participantPhones.size() <= 10)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             (!('resolvedAt' in data) || (data.resolvedAt is timestamp && data.resolvedAt <= request.time));
+    }
+
+    function isValidPayment(data, agreementId) {
+      return data.agreementId == agreementId &&
+             data.recordedBy is string && data.recordedBy.size() >= 1 && data.recordedBy.size() <= 128 &&
+             data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+             (!('confirmedAmount' in data) || (data.confirmedAmount is number && data.confirmedAmount >= 0 && data.confirmedAmount <= data.amount)) &&
+             (!('paymentDateText' in data) || (data.paymentDateText is string && data.paymentDateText.size() <= 40)) &&
+             data.paidAt is timestamp && data.paidAt <= request.time &&
+             data.method is string && data.method.size() >= 2 && data.method.size() <= 60 &&
+             data.receiptReference is string && data.receiptReference.size() <= 300 &&
+             (!('attachment' in data) || data.attachment is map) &&
+             data.confirmedBy is list && data.confirmedBy.size() >= 1 && data.confirmedBy.size() <= 10 &&
+             (!('confirmationMode' in data) || data.confirmationMode in ['FULL', 'PARTIAL', 'NOT_RECEIVED']) &&
+             (!('confirmationNote' in data) || (data.confirmationNote is string && data.confirmationNote.size() <= 500)) &&
+             (!('witnessUid' in data) || (data.witnessUid is string && data.witnessUid.size() <= 128)) &&
+             (!('witnessOtpVerified' in data) || data.witnessOtpVerified is bool) &&
+             data.status in ['PENDING_CONFIRMATION', 'CONFIRMED', 'PARTIAL_CONFIRMED', 'NOT_RECEIVED'] &&
+             data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 10 &&
+             data.participantEmails is list && data.participantEmails.size() <= 10 &&
+             (!('participantPhones' in data) || (data.participantPhones is list && data.participantPhones.size() <= 10)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidDispute(data, agreementId) {
+      return data.agreementId == agreementId &&
+             data.type is string && data.type.size() >= 2 && data.type.size() <= 80 &&
+             data.details is string && data.details.size() >= 10 && data.details.size() <= 2000 &&
+             data.evidenceNotes is list && data.evidenceNotes.size() <= 10 &&
+             data.status in ['OPEN', 'UNDER_REVIEW', 'RESOLVED'] &&
+             data.openedBy is string && data.openedBy.size() >= 1 && data.openedBy.size() <= 128 &&
+             data.openedByName is string && data.openedByName.size() >= 1 && data.openedByName.size() <= 120 &&
+             data.replies is list && data.replies.size() <= 30 &&
+             data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 10 &&
+             data.participantEmails is list && data.participantEmails.size() <= 10 &&
+             (!('participantPhones' in data) || (data.participantPhones is list && data.participantPhones.size() <= 10)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAuditLog(data, agreementId) {
+      return data.agreementId == agreementId &&
+             data.action is string && data.action.size() >= 2 && data.action.size() <= 80 &&
+             data.actorUid == request.auth.uid &&
+             data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 120 &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 500)) &&
+             (!('metadata' in data) || data.metadata is map) &&
+             data.snapshotHash is string && data.snapshotHash.size() == 64 && data.snapshotHash.matches('^[a-f0-9]{64}$') &&
+             data.participantUids is list && data.participantUids.size() >= 1 && data.participantUids.size() <= 10 &&
+             data.participantEmails is list && data.participantEmails.size() <= 10 &&
+             (!('participantPhones' in data) || (data.participantPhones is list && data.participantPhones.size() <= 10)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidInvitation(data) {
+      return isValidId(data.agreementId) &&
+             data.agreementTitle is string && data.agreementTitle.size() >= 3 && data.agreementTitle.size() <= 160 &&
+             (!('agreementCode' in data) || (data.agreementCode is string && data.agreementCode.size() <= 32)) &&
+             (!('agreementSummary' in data) || (data.agreementSummary is string && data.agreementSummary.size() <= 300)) &&
+             data.inviterUid is string && data.inviterUid.size() >= 1 && data.inviterUid.size() <= 128 &&
+             data.inviterName is string && data.inviterName.size() >= 1 && data.inviterName.size() <= 120 &&
+             data.inviteePhone is string && data.inviteePhone.size() <= 30 &&
+             (!('inviteePhoneLast3' in data) || (data.inviteePhoneLast3 is string && data.inviteePhoneLast3.size() <= 6)) &&
+             data.inviteeEmail is string && data.inviteeEmail.size() <= 150 &&
+             (data.inviteePhone.size() >= 6 || data.inviteeEmail.size() >= 3) &&
+             data.purpose in ['PARTY', 'WITNESS'] &&
+             data.expiresAt is timestamp &&
+             (!('usedAt' in data) || (data.usedAt is timestamp && data.usedAt <= request.time)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // --- COLLECTION RULES ---
+    match /users/{uid} {
+      allow get, list: if isSignedIn() && request.auth.uid == uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(uid) &&
+                       request.auth.uid == uid &&
+                       incoming().userId == uid &&
+                       incoming().keys().hasAll(['userId', 'fullName', 'phoneVerified', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'fullName', 'email', 'phone', 'photoURL', 'phoneVerified', 'biometricCredentialId', 'preferredTheme', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(uid) &&
+                       request.auth.uid == uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'email', 'phone', 'photoURL', 'phoneVerified', 'biometricCredentialId', 'preferredTheme', 'updatedAt']);
+
+      allow delete: if false;
+
+      match /vault/{docId} {
+        allow get, list: if isSignedIn() && request.auth.uid == uid;
+        allow create: if isSignedIn() &&
+                         isValidId(docId) &&
+                         request.auth.uid == uid &&
+                         incoming().userId == uid &&
+                         isValidVaultDoc(incoming(), uid);
+        allow update: if isSignedIn() &&
+                         isValidId(docId) &&
+                         request.auth.uid == uid &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidVaultDoc(incoming(), uid) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'referenceCode', 'notes', 'sha256Hash', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      match /sessions/{sid} {
+        allow get, list: if isSignedIn() && request.auth.uid == uid;
+        allow create: if isSignedIn() &&
+                         isValidId(sid) &&
+                         request.auth.uid == uid &&
+                         incoming().userId == uid &&
+                         isValidSession(incoming(), uid);
+        allow update: if isSignedIn() &&
+                         isValidId(sid) &&
+                         request.auth.uid == uid &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidSession(incoming(), uid) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['revoked', 'lastSeenAt', 'device', 'userAgent']);
+        allow delete: if false;
+      }
+    }
+
+    match /agreements/{agreementId} {
+      allow get: if isSignedIn() && isValidId(agreementId) && isAgreementMember(existing());
+      allow list: if isSignedIn() && (
+        (request.auth.uid in resource.data.participantUids) ||
+        (request.auth.token.email_verified == true && request.auth.token.email is string && request.auth.token.email.lower() in resource.data.participantEmails) ||
+        (request.auth.token.phone_number is string && 'participantPhones' in resource.data && request.auth.token.phone_number in resource.data.participantPhones)
+      );
+
+      allow create: if isSignedIn() &&
+                       isValidId(agreementId) &&
+                       incoming().keys().hasAll([
+                         'ownerId', 'ownerName', 'ownerEmail', 'agreementCode', 'title', 'type',
+                         'description', 'status', 'currency', 'amount', 'agreementDate', 'startDate',
+                         'dueDate', 'paymentMethod', 'rights', 'obligations', 'specialTerms',
+                         'parties', 'witnesses', 'participantUids', 'participantEmails',
+                         'currentVersionId', 'versions', 'contentHash', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'ownerId', 'ownerName', 'ownerEmail', 'ownerPhone', 'agreementCode', 'title', 'type',
+                         'description', 'status', 'currency', 'amount', 'paidTotal', 'agreementDate', 'startDate',
+                         'dueDate', 'paymentMethod', 'rights', 'obligations', 'specialTerms',
+                         'parties', 'witnesses', 'attachments', 'participantUids', 'participantEmails',
+                         'participantPhones', 'currentVersionId', 'versions', 'contentHash', 'editRequestNote',
+                         'archived', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidAgreement(incoming()) &&
+                       incoming().ownerId == request.auth.uid &&
+                       (isVerifiedEmail(incoming().ownerEmail) ||
+                         ('ownerPhone' in incoming() && isVerifiedPhone(incoming().ownerPhone)) ||
+                         request.auth.token.phone_number is string) &&
+                       incoming().status in ['DRAFT', 'PENDING'] &&
+                       (!('paidTotal' in incoming()) || incoming().paidTotal == 0) &&
+                       (request.auth.uid in incoming().participantUids) &&
+                       !('approvedSnapshot' in incoming()) &&
+                       !('approvedHash' in incoming()) &&
+                       !('lockedAt' in incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(agreementId) &&
+                       isAgreementUpdateAllowed(incoming(), existing(), agreementId);
+
+      allow delete: if false;
+
+      // [Fix 1] Approvals and Signatures strictly managed by Cloud Functions (Admin SDK) -> allow write: if false;
+      match /approvals/{approvalId} {
+        allow get: if isSignedIn() && isValidId(agreementId) && isValidId(approvalId) && isSubcollectionMember(existing());
+        allow list: if isSignedIn() && isValidId(agreementId) && (request.auth.uid in resource.data.participantUids);
+        allow write: if false;
+      }
+
+      match /signatures/{signatureId} {
+        allow get: if isSignedIn() && isValidId(agreementId) && isValidId(signatureId) && isSubcollectionMember(existing());
+        allow list: if isSignedIn() && isValidId(agreementId) && (request.auth.uid in resource.data.participantUids);
+        allow write: if false;
+      }
+
+      // Unanimous Amendments against APPROVED agreements
+      match /amendments/{amendmentId} {
+        allow get: if isSignedIn() && isValidId(agreementId) && isValidId(amendmentId) && isSubcollectionMember(existing());
+        allow list: if isSignedIn() && isValidId(agreementId) && (request.auth.uid in resource.data.participantUids);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.email_verified == true &&
+                      request.auth.token.email is string &&
+                      (request.auth.token.email.lower() in resource.data.participantEmails);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.phone_number is string &&
+                      ('participantPhones' in resource.data) &&
+                      (request.auth.token.phone_number in resource.data.participantPhones);
+
+        allow create: if isSignedIn() &&
+                         isValidId(agreementId) &&
+                         isValidId(amendmentId) &&
+                         incoming().proposedByUid == request.auth.uid &&
+                         incoming().status == 'PENDING' &&
+                         incoming().approvedPartyKeys.size() <= 1 &&
+                         isValidAmendment(incoming(), agreementId) &&
+                         isSubcollectionMember(incoming()) &&
+                         exists(/databases/$(database)/documents/agreements/$(agreementId)) &&
+                         get(/databases/$(database)/documents/agreements/$(agreementId)).data.status == 'APPROVED';
+
+        allow update: if isSignedIn() &&
+                         isValidId(agreementId) &&
+                         isValidId(amendmentId) &&
+                         existing().status == 'PENDING' &&
+                         isSubcollectionMember(existing()) &&
+                         incoming().proposedByUid == existing().proposedByUid &&
+                         incoming().baseVersionId == existing().baseVersionId &&
+                         incoming().proposedTitle == existing().proposedTitle &&
+                         incoming().proposedDescription == existing().proposedDescription &&
+                         incoming().proposedAmount == existing().proposedAmount &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidAmendment(incoming(), agreementId) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'approvedByUids', 'approvedPartyKeys', 'rejectedByUid',
+                           'rejectionNote', 'status', 'appliedVersionId', 'resolvedAt'
+                         ]);
+
+        allow delete: if false;
+      }
+
+      // [Fix 2] Payments creation allowed for recording, but update strictly disallowed from client (handled via confirmPayment Cloud Function)
+      match /payments/{paymentId} {
+        allow get: if isSignedIn() && isValidId(agreementId) && isValidId(paymentId) && isSubcollectionMember(existing());
+        allow list: if isSignedIn() && isValidId(agreementId) && (request.auth.uid in resource.data.participantUids);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.email_verified == true &&
+                      request.auth.token.email is string &&
+                      (request.auth.token.email.lower() in resource.data.participantEmails);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.phone_number is string &&
+                      ('participantPhones' in resource.data) &&
+                      (request.auth.token.phone_number in resource.data.participantPhones);
+
+        allow create: if isSignedIn() &&
+                         isValidId(agreementId) &&
+                         isValidId(paymentId) &&
+                         incoming().keys().hasAll([
+                           'agreementId', 'recordedBy', 'amount', 'paidAt', 'method',
+                           'receiptReference', 'confirmedBy', 'status',
+                           'participantUids', 'participantEmails', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'agreementId', 'recordedBy', 'amount', 'confirmedAmount', 'paymentDateText',
+                           'paidAt', 'method', 'receiptReference', 'attachment', 'confirmedBy',
+                           'confirmationMode', 'confirmationNote', 'witnessUid', 'witnessOtpVerified',
+                           'status', 'participantUids', 'participantEmails', 'participantPhones', 'createdAt'
+                         ]) &&
+                         incoming().recordedBy == request.auth.uid &&
+                         incoming().status == 'PENDING_CONFIRMATION' &&
+                         isValidPayment(incoming(), agreementId) &&
+                         isSubcollectionMember(incoming()) &&
+                         exists(/databases/$(database)/documents/agreements/$(agreementId));
+
+        // [Fix 2] Payments cannot be updated directly from client; use confirmPayment Cloud Function
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      match /disputes/{disputeId} {
+        allow get: if isSignedIn() && isValidId(agreementId) && isValidId(disputeId) && isSubcollectionMember(existing());
+        allow list: if isSignedIn() && isValidId(agreementId) && (request.auth.uid in resource.data.participantUids);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.email_verified == true &&
+                      request.auth.token.email is string &&
+                      (request.auth.token.email.lower() in resource.data.participantEmails);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.phone_number is string &&
+                      ('participantPhones' in resource.data) &&
+                      (request.auth.token.phone_number in resource.data.participantPhones);
+
+        allow create: if isSignedIn() &&
+                         isValidId(agreementId) &&
+                         isValidId(disputeId) &&
+                         incoming().keys().hasAll([
+                           'agreementId', 'type', 'details', 'evidenceNotes', 'status',
+                           'openedBy', 'openedByName', 'replies',
+                           'participantUids', 'participantEmails', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'agreementId', 'type', 'details', 'evidenceNotes', 'status',
+                           'openedBy', 'openedByName', 'replies',
+                           'participantUids', 'participantEmails', 'participantPhones', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().openedBy == request.auth.uid &&
+                         incoming().status == 'OPEN' &&
+                         isValidDispute(incoming(), agreementId) &&
+                         isSubcollectionMember(incoming()) &&
+                         existsAfter(/databases/$(database)/documents/agreements/$(agreementId));
+
+        allow update: if isSignedIn() &&
+                         isValidId(agreementId) &&
+                         isValidId(disputeId) &&
+                         isSubcollectionMember(existing()) &&
+                         isValidDispute(incoming(), agreementId) &&
+                         incoming().openedBy == existing().openedBy &&
+                         incoming().type == existing().type &&
+                         incoming().details == existing().details &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['replies', 'status', 'updatedAt']);
+
+        allow delete: if false;
+      }
+
+      match /audit/{auditId} {
+        allow get: if isSignedIn() && isValidId(agreementId) && isValidId(auditId) && isSubcollectionMember(existing());
+        allow list: if isSignedIn() && isValidId(agreementId) && (request.auth.uid in resource.data.participantUids);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.email_verified == true &&
+                      request.auth.token.email is string &&
+                      (request.auth.token.email.lower() in resource.data.participantEmails);
+        allow list: if isSignedIn() && isValidId(agreementId) &&
+                      request.auth.token.phone_number is string &&
+                      ('participantPhones' in resource.data) &&
+                      (request.auth.token.phone_number in resource.data.participantPhones);
+
+        allow create: if isSignedIn() &&
+                         isValidId(agreementId) &&
+                         isValidId(auditId) &&
+                         incoming().keys().hasAll([
+                           'agreementId', 'action', 'actorUid', 'actorName',
+                           'snapshotHash', 'participantUids', 'participantEmails', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'agreementId', 'action', 'actorUid', 'actorName', 'note', 'metadata',
+                           'snapshotHash', 'participantUids', 'participantEmails', 'participantPhones', 'createdAt'
+                         ]) &&
+                         isValidAuditLog(incoming(), agreementId) &&
+                         isSubcollectionMember(incoming()) &&
+                         existsAfter(/databases/$(database)/documents/agreements/$(agreementId));
+
+        allow update, delete: if false;
+      }
+    }
+
+    match /invitations/{token} {
+      allow get: if isValidId(token) && (
+        token.size() >= 20 ||
+        (isSignedIn() && (
+          existing().inviterUid == request.auth.uid ||
+          isVerifiedEmail(existing().inviteeEmail) ||
+          isVerifiedPhone(existing().inviteePhone)
+        ))
+      );
+      allow list: if isSignedIn() && resource.data.inviterUid == request.auth.uid;
+      allow list: if isSignedIn() &&
+                    request.auth.token.email_verified == true &&
+                    request.auth.token.email is string &&
+                    resource.data.inviteeEmail == request.auth.token.email.lower();
+      allow list: if isSignedIn() &&
+                    request.auth.token.phone_number is string &&
+                    resource.data.inviteePhone == request.auth.token.phone_number;
+
+      allow create: if isSignedIn() &&
+                       isValidId(token) &&
+                       incoming().keys().hasAll([
+                         'agreementId', 'agreementTitle', 'inviterUid', 'inviterName',
+                         'inviteePhone', 'inviteeEmail', 'purpose', 'expiresAt', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'agreementId', 'agreementCode', 'agreementTitle', 'agreementSummary',
+                         'inviterUid', 'inviterName', 'inviteePhone', 'inviteePhoneLast3',
+                         'inviteeEmail', 'purpose', 'expiresAt', 'usedAt', 'createdAt'
+                       ]) &&
+                       incoming().inviterUid == request.auth.uid &&
+                       !('usedAt' in incoming()) &&
+                       isValidInvitation(incoming()) &&
+                       existsAfter(/databases/$(database)/documents/agreements/$(incoming().agreementId));
+
+      allow update: if isSignedIn() &&
+                       isValidId(token) &&
+                       !('usedAt' in existing()) &&
+                       request.time < existing().expiresAt &&
+                       (isVerifiedEmail(existing().inviteeEmail) || isVerifiedPhone(existing().inviteePhone)) &&
+                       isValidInvitation(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['usedAt']);
+
+      allow delete: if false;
+    }
+
+    match /certificates/{publicId} {
+      allow get: if isValidId(publicId);
+      allow list, write: if false;
+    }
+
+    match /inheritanceRequests/{reqId} {
+      allow get, list: if isSignedIn() && resource.data.requesterUid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(reqId) && incoming().requesterUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

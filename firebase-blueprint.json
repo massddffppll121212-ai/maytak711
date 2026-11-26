@@ -1,0 +1,320 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile, phone verification state, Keystore credentialId, and theme preference.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "phoneVerified": { "type": "boolean" },
+        "biometricCredentialId": { "type": "string" },
+        "preferredTheme": { "type": "string", "enum": ["SYSTEM", "LIGHT", "DARK"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "fullName", "phoneVerified", "createdAt", "updatedAt"]
+    },
+    "VaultDocument": {
+      "title": "VaultDocument",
+      "description": "Private personal reference item inside the user's vault.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "referenceCode": { "type": "string" },
+        "notes": { "type": "string" },
+        "sha256Hash": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "category", "referenceCode", "sha256Hash", "createdAt", "updatedAt"]
+    },
+    "UserSession": {
+      "title": "UserSession",
+      "description": "Active authenticated device session record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "device": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "ipHash": { "type": "string" },
+        "revoked": { "type": "boolean" },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "device", "userAgent", "ipHash", "revoked", "lastSeenAt", "createdAt"]
+    },
+    "Agreement": {
+      "title": "Agreement",
+      "description": "Bilateral/multi-party covenant with dual verification, unanimous amendments, financial totals, and immutable approved snapshot.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "ownerPhone": { "type": "string" },
+        "agreementCode": { "type": "string" },
+        "title": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["FINANCIAL", "PARTNERSHIP", "SERVICE", "LEASE", "LOAN", "NDA", "SALE", "EMPLOYMENT", "AGENCY", "OTHER"]
+        },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["DRAFT", "PENDING", "APPROVED", "NEEDS_EDIT", "EXPIRED", "DISPUTED"] },
+        "currency": { "type": "string", "enum": ["SAR", "YER", "AED", "KWD", "EGP", "USD", "EUR", "NONE"] },
+        "amount": { "type": "number" },
+        "paidTotal": { "type": "number" },
+        "agreementDate": { "type": "string" },
+        "startDate": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["BANK_TRANSFER", "CASH", "ELECTRONIC", "INSTALLMENTS", "NONE"] },
+        "rights": { "type": "array" },
+        "obligations": { "type": "array" },
+        "specialTerms": { "type": "array" },
+        "parties": { "type": "array" },
+        "witnesses": { "type": "array" },
+        "attachments": { "type": "array" },
+        "participantUids": { "type": "array" },
+        "participantEmails": { "type": "array" },
+        "participantPhones": { "type": "array" },
+        "currentVersionId": { "type": "string" },
+        "versions": { "type": "array" },
+        "contentHash": { "type": "string" },
+        "approvedHash": { "type": "string" },
+        "approvedSnapshot": { "type": "object" },
+        "lastAppliedAmendmentId": { "type": "string" },
+        "editRequestNote": { "type": "string" },
+        "archived": { "type": "boolean" },
+        "lockedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId", "ownerName", "ownerEmail", "agreementCode", "title", "type",
+        "description", "status", "currency", "amount", "agreementDate", "startDate",
+        "dueDate", "paymentMethod", "rights", "obligations", "specialTerms",
+        "parties", "witnesses", "participantUids", "participantEmails",
+        "currentVersionId", "versions", "contentHash", "createdAt", "updatedAt"
+      ]
+    },
+    "OtpApprovalChallenge": {
+      "title": "OtpApprovalChallenge",
+      "description": "Hashed single-use OTP verification challenge with 5-attempt limit and expiry.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string" },
+        "targetUid": { "type": "string" },
+        "targetIdentifier": { "type": "string" },
+        "otpHash": { "type": "string" },
+        "otpSalt": { "type": "string" },
+        "attempts": { "type": "integer" },
+        "maxAttempts": { "type": "integer" },
+        "used": { "type": "boolean" },
+        "verified": { "type": "boolean" },
+        "expiresAtMillis": { "type": "integer" },
+        "participantUids": { "type": "array" },
+        "participantEmails": { "type": "array" },
+        "participantPhones": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "verifiedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["agreementId", "targetUid", "targetIdentifier", "otpHash", "otpSalt", "attempts", "maxAttempts", "used", "verified", "expiresAtMillis", "participantUids", "participantEmails", "createdAt"]
+    },
+    "AgreementSignature": {
+      "title": "AgreementSignature",
+      "description": "Immutable dual-verification signature receipt per party or witness.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string" },
+        "userId": { "type": "string" },
+        "signerName": { "type": "string" },
+        "role": { "type": "string", "enum": ["PARTY", "WITNESS"] },
+        "versionId": { "type": "string" },
+        "versionHash": { "type": "string" },
+        "phoneVerified": { "type": "boolean" },
+        "biometricVerified": { "type": "boolean" },
+        "credentialId": { "type": "string" },
+        "verificationMethod": { "type": "string" },
+        "ipHash": { "type": "string" },
+        "uaHash": { "type": "string" },
+        "participantUids": { "type": "array" },
+        "participantEmails": { "type": "array" },
+        "participantPhones": { "type": "array" },
+        "signedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["agreementId", "userId", "signerName", "role", "versionId", "versionHash", "phoneVerified", "biometricVerified", "verificationMethod", "ipHash", "uaHash", "participantUids", "participantEmails", "signedAt"]
+    },
+    "AgreementAmendment": {
+      "title": "AgreementAmendment",
+      "description": "Proposed amendment with structured diff requiring unanimous party approval to create version vN+1.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string" },
+        "baseVersionId": { "type": "string" },
+        "proposedByUid": { "type": "string" },
+        "proposedByName": { "type": "string" },
+        "reason": { "type": "string" },
+        "proposedTitle": { "type": "string" },
+        "proposedDescription": { "type": "string" },
+        "proposedAmount": { "type": "number" },
+        "proposedDueDate": { "type": "string" },
+        "proposedRights": { "type": "array" },
+        "proposedObligations": { "type": "array" },
+        "proposedSpecialTerms": { "type": "array" },
+        "diffItems": { "type": "array" },
+        "requiredPartyKeys": { "type": "array" },
+        "approvedByUids": { "type": "array" },
+        "approvedPartyKeys": { "type": "array" },
+        "rejectedByUid": { "type": "string" },
+        "rejectionNote": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED_APPLIED", "REJECTED"] },
+        "appliedVersionId": { "type": "string" },
+        "participantUids": { "type": "array" },
+        "participantEmails": { "type": "array" },
+        "participantPhones": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "resolvedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["agreementId", "baseVersionId", "proposedByUid", "proposedByName", "reason", "proposedTitle", "proposedDescription", "proposedAmount", "proposedDueDate", "proposedRights", "proposedObligations", "proposedSpecialTerms", "diffItems", "requiredPartyKeys", "approvedByUids", "approvedPartyKeys", "status", "participantUids", "participantEmails", "createdAt"]
+    },
+    "AgreementPayment": {
+      "title": "AgreementPayment",
+      "description": "Recorded payment installment and dual-proof mutual confirmation status.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string" },
+        "recordedBy": { "type": "string" },
+        "amount": { "type": "number" },
+        "confirmedAmount": { "type": "number" },
+        "paymentDateText": { "type": "string" },
+        "paidAt": { "type": "string", "format": "date-time" },
+        "method": { "type": "string" },
+        "receiptReference": { "type": "string" },
+        "attachment": { "type": "object" },
+        "confirmedBy": { "type": "array" },
+        "confirmationMode": { "type": "string", "enum": ["FULL", "PARTIAL", "NOT_RECEIVED"] },
+        "confirmationNote": { "type": "string" },
+        "witnessUid": { "type": "string" },
+        "witnessOtpVerified": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["PENDING_CONFIRMATION", "CONFIRMED", "PARTIAL_CONFIRMED", "NOT_RECEIVED"] },
+        "participantUids": { "type": "array" },
+        "participantEmails": { "type": "array" },
+        "participantPhones": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["agreementId", "recordedBy", "amount", "paidAt", "method", "receiptReference", "confirmedBy", "status", "participantUids", "participantEmails", "createdAt"]
+    },
+    "AgreementDispute": {
+      "title": "AgreementDispute",
+      "description": "Formal dispute record with replies under an agreement.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string" },
+        "type": { "type": "string" },
+        "details": { "type": "string" },
+        "evidenceNotes": { "type": "array" },
+        "status": { "type": "string", "enum": ["OPEN", "UNDER_REVIEW", "RESOLVED"] },
+        "openedBy": { "type": "string" },
+        "openedByName": { "type": "string" },
+        "replies": { "type": "array" },
+        "participantUids": { "type": "array" },
+        "participantEmails": { "type": "array" },
+        "participantPhones": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["agreementId", "type", "details", "evidenceNotes", "status", "openedBy", "openedByName", "replies", "participantUids", "participantEmails", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Append-only immutable audit log for agreement actions.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string" },
+        "action": { "type": "string" },
+        "actorUid": { "type": "string" },
+        "actorName": { "type": "string" },
+        "note": { "type": "string" },
+        "metadata": { "type": "object" },
+        "snapshotHash": { "type": "string" },
+        "participantUids": { "type": "array" },
+        "participantEmails": { "type": "array" },
+        "participantPhones": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["agreementId", "action", "actorUid", "actorName", "snapshotHash", "participantUids", "participantEmails", "createdAt"]
+    },
+    "Invitation": {
+      "title": "Invitation",
+      "description": "Cryptographic invitation token (7-day expiry) linking a party or witness to an agreement.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string" },
+        "agreementCode": { "type": "string" },
+        "agreementTitle": { "type": "string" },
+        "agreementSummary": { "type": "string" },
+        "inviterUid": { "type": "string" },
+        "inviterName": { "type": "string" },
+        "inviteePhone": { "type": "string" },
+        "inviteePhoneLast3": { "type": "string" },
+        "inviteeEmail": { "type": "string" },
+        "purpose": { "type": "string", "enum": ["PARTY", "WITNESS"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "usedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["agreementId", "agreementTitle", "inviterUid", "inviterName", "inviteePhone", "inviteeEmail", "purpose", "expiresAt", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile and preferences."
+    },
+    "/users/{uid}/vault/{docId}": {
+      "schema": { "$ref": "#/entities/VaultDocument" },
+      "description": "User private document vault."
+    },
+    "/users/{uid}/sessions/{sid}": {
+      "schema": { "$ref": "#/entities/UserSession" },
+      "description": "User active session records."
+    },
+    "/agreements/{id}": {
+      "schema": { "$ref": "#/entities/Agreement" },
+      "description": "Agreements accessible strictly to owner, parties, and witnesses."
+    },
+    "/agreements/{id}/approvals/{aid}": {
+      "schema": { "$ref": "#/entities/OtpApprovalChallenge" },
+      "description": "Single-use OTP challenges per party/witness."
+    },
+    "/agreements/{id}/signatures/{sid}": {
+      "schema": { "$ref": "#/entities/AgreementSignature" },
+      "description": "Immutable dual-verification signatures."
+    },
+    "/agreements/{id}/amendments/{amid}": {
+      "schema": { "$ref": "#/entities/AgreementAmendment" },
+      "description": "Unanimous amendments on approved agreements."
+    },
+    "/agreements/{id}/payments/{pid}": {
+      "schema": { "$ref": "#/entities/AgreementPayment" },
+      "description": "Payments linked to an agreement."
+    },
+    "/agreements/{id}/disputes/{did}": {
+      "schema": { "$ref": "#/entities/AgreementDispute" },
+      "description": "Disputes linked to an agreement."
+    },
+    "/agreements/{id}/audit/{aid}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Append-only audit trail for an agreement."
+    },
+    "/invitations/{token}": {
+      "schema": { "$ref": "#/entities/Invitation" },
+      "description": "Party and witness invitations."
+    }
+  }
+}

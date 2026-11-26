@@ -1,11 +1,47 @@
-<div align="center">
+# ميثاق MEETHAQ — منصة توثيق الاتفاقات الرقمية المحمية
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+منصة متكاملة ومتقدمة لتوثيق، تنظيم، وإدارة الاتفاقات والشراكات المالية والعقود الرقمية بأسلوب Zero-Trust، مع دعم التوثيق المزدوج (OTP + Biometric)، الخزنة الرقمية المشفرة، النزاعات والأدلة المحصنة، وشهادات PDF المزودة برمز QR.
 
-  <h1>Built with AI Studio</h2>
+---
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 1. خطوة الإعداد والتشغيل (Setup Guide)
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+### أ. إعداد مشروع Firebase Console
+1. أنشئ مشروعاً جديداً في [Firebase Console](https://console.firebase.google.com).
+2. فعّل **Authentication** (مع تفعيل Google Sign-In).
+3. فعّل **Cloud Firestore** في المنطقة المناسبة.
+4. فعّل **Firebase App Check** واربطه بـ **reCAPTCHA Enterprise** (للنسخة الإنتاجية) وتفعيل **Debug Provider** (للبيئة المحلية والتطوير).
 
-</div>
+### ب. إعداد متغيرات البيئة والأمان (Secrets)
+1. أدخل مفاتيح المشروع وأسرار الاتصال عبر **Secrets panel في AI Studio** (إن وجدت).
+2. لا تقم أبداً بوضع مفاتيح سرية في الشفرة المصدرية أو ملفات التكوين المكشوفة.
+
+---
+
+## 2. نشر القواعد والدوال (Deployment)
+
+### نشر قواعد Firestore
+استخدم أداة نشر القواعد لنشر الملف المعتمد `firestore.rules`:
+```bash
+firebase deploy --only firestore:rules
+```
+
+### نشر Cloud Functions
+لتجميع ونشر الدوال السحابية (بما فيها `verifyOtp`, `signAgreement`, `approveAgreement`, `confirmPayment`, `generateCertificate`):
+```bash
+cd functions
+npm run build
+firebase deploy --only functions
+```
+
+---
+
+## 3. الحدود والتنبيهات القانونية (Legal Disclaimer)
+
+> **تنبيه قانوني هامة:**
+> التحقق الإلكتروني والتوقيع البيومتري ورمز OTP وحدهما لا يُعتبران إثباتاً قانونياً قاطعاً للهوية أمام الجهات القضائية ما لم يتم استيفاء كافة المتطلبات النظامية والشرعية بحسب الأنظمة واللوائح المحلية المعتمدة في الدولة. منصة ميثاق تعمل كأداة تنظيمية متقدمة لحفظ الأدلة والسجلات ولا تقدم استشارة قانونية نهائية.
+
+---
+
+## 4. اختبارات الأمان والحماية (Security Tests)
+تغطي اختبارات وحدة الأمان في `firestore.test.js` 12 سيناريو رئيسياً لمحاولات التجاوز (مثل: تعديل اتفاق معتمد، حذف اتفاق، الوصول لملفات مستخدم آخر، تزوير الموافقات، إعادة استخدام OTP، تزوير الشهادات، والدفعات الوهمية)، وتضمن رفضها بالكامل.

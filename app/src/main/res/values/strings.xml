@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ميثاق</string>
+    <string name="app_full_brand">ميثاق MEETHAQ</string>
+    <string name="app_tagline">اتفاق موثّق.. حق محفوظ.. بلا شهود</string>
+    <string name="auth_welcome_title">ميثاقك الرقمي الموثّق</string>
+    <string name="auth_welcome_subtitle">وثّق اتفاقاتك المالية والشراكات والعقود الثنائية ببصمة تشفير SHA-256 وسجل تدقيق سحابي غير قابل للتعديل.</string>
+    <string name="auth_google_sign_in">الدخول بحساب Google</string>
+    <string name="auth_signing_in">جارٍ التحقق والدخول…</string>
+    <string name="nav_dashboard">الرئيسية</string>
+    <string name="nav_agreements">المواثيق</string>
+    <string name="nav_create">ميثاق جديد</string>
+    <string name="nav_verify">التحقق</string>
+    <string name="nav_account">الحساب</string>
+    <string name="theme_system">تلقائي (النظام)</string>
+    <string name="theme_light">الوضع النهاري</string>
+    <string name="theme_dark">الوضع الليلي</string>
+    <string name="sign_out">تسجيل الخروج</string>
+    <string name="error_generic">تعذّر إتمام العملية، يرجى المحاولة مرة أخرى.</string>
+    <string name="error_config_missing">إعدادات تسجيل الدخول عبر Google غير مكتملة.</string>
+</resources>

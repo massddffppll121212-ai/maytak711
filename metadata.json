@@ -1,0 +1,6 @@
+{
+  "name": "ميثاق MEETHAQ",
+  "description": "تطبيق ميثاق لتوثيق الاتفاقات وحفظ الحقوق بشكل موثّق وآمن مع توقيع رقمي وبصمة تحقق.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
